@@ -1,4 +1,4 @@
-Source: mne
+Source: mne-python
 Section: python
 Priority: optional
 Maintainer: Alexandre Gramfort <alexandre.gramfort@m4x.org>
@@ -11,8 +11,6 @@ Vcs-Browser: http://github.com/mne-tools/mne-python
 Vcs-Git: git://github.com/mne-tools/mne-python.git -b debian
 
 Package: python-mne
-Replaces: python-mne (<< 0.7~)
-Breaks: python-mne (<< 0.7~)
 Architecture: all
 Depends: ${misc:Depends}, ${python:Depends}, python-numpy, python-scipy, python-sklearn, python-matplotlib, python-joblib (>= 0.4.5), xvfb, xauth, libgl1-mesa-dri
 Provides: ${python:Provides}
