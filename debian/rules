@@ -1,8 +1,10 @@
 #!/usr/bin/make -f
 # -*- makefile -*-
 
+NOSETESTS=nosetests
+
 %:
-	dh $@
+	dh $@ --with python2 --buildsystem python_distutils
 
 override_dh_clean:
 	rm -rf *.egg-info
