@@ -11,6 +11,6 @@ override_dh_clean:
 	dh_clean
 
 override_dh_auto_test:
-	xvfb-run --auto-servernum --server-num=20 -s "-screen 0 1024x768x24 -ac +extension GLX +render -noreset"
-	@MNE_SKIP_SAMPLE_DATASET_TESTS=true \
-	$(NOSETESTS) mne
+	MNE_SKIP_SAMPLE_DATASET_TESTS=true \
+      xvfb-run --auto-servernum --server-num=20 -s "-screen 0 1024x768x24 -ac +extension GLX +render -noreset" \
+	  $(NOSETESTS) mne
