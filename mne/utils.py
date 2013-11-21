@@ -12,6 +12,7 @@ import os
 import os.path as op
 from functools import wraps
 import inspect
+from string import Formatter
 import subprocess
 import sys
 from sys import stdout
@@ -226,6 +227,25 @@ def run_subprocess(command, *args, **kwargs):
     return output
 
 
+class _FormatDict(dict):
+    """Helper for pformat()"""
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def pformat(temp, **fmt):
+    """Partially format a template string.
+
+    Examples
+    --------
+    >>> pformat("{a}_{b}", a='x')
+    'x_{b}'
+    """
+    formatter = Formatter()
+    mapping = _FormatDict(fmt)
+    return formatter.vformat(temp, (), mapping)
+
+
 ###############################################################################
 # DECORATORS
 
@@ -380,7 +400,8 @@ def has_nibabel(vox2ras_tkr=False):
     try:
         import nibabel
         if vox2ras_tkr:  # we need MGHHeader to have vox2ras_tkr param
-            mgh_ihdr = getattr(nibabel, 'MGHImage.header_class', None)
+            mgh_ihdr = getattr(nibabel, 'MGHImage', None)
+            mgh_ihdr = getattr(mgh_ihdr, 'header_class', None)
             get_vox2ras_tkr = getattr(mgh_ihdr, 'get_vox2ras_tkr', None)
             if get_vox2ras_tkr is not None:
                 return True

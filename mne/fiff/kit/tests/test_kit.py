@@ -48,7 +48,8 @@ def test_data():
 
     assert_array_almost_equal(data_py, data_Ykgw)
 
-    py_picks = pick_types(raw_py.info, stim=True, exclude='bads')
+    py_picks = pick_types(raw_py.info, stim=True, ref_meg=False,
+                          exclude='bads')
     data_py, _ = raw_py[py_picks]
     assert_array_almost_equal(data_py, data_bin)
 
@@ -88,6 +89,9 @@ def test_ch_loc():
         if bin_ch['ch_name'].startswith('MEG'):
             # the stored ch locs have more precision than the sns.txt
             assert_array_almost_equal(py_ch['loc'], bin_ch['loc'], decimal=2)
+            assert_array_almost_equal(py_ch['coil_trans'],
+                                      bin_ch['coil_trans'],
+                                      decimal=2)
 
 
 def test_stim_ch():
@@ -95,7 +99,8 @@ def test_stim_ch():
     """
     raw = read_raw_kit(sqd_path, mrk_path, elp_path, hsp_path, stim='<',
                        slope='+', preload=True)
-    stim_pick = pick_types(raw.info, meg=False, stim=True, exclude='bads')
+    stim_pick = pick_types(raw.info, meg=False, ref_meg=False,
+                           stim=True, exclude='bads')
     stim1, _ = raw[stim_pick]
     stim2 = np.array(raw.read_stim_ch(), ndmin=2)
     assert_array_equal(stim1, stim2)

@@ -42,6 +42,29 @@ from ..utils import (_check_fname, get_subjects_dir, has_command_line_tools,
                      run_subprocess, logger, verbose)
 
 
+def prepare_bem_model(bem, sol_fname=None, method='linear'):
+    """Wrapper for the mne_prepare_bem_model command line utility
+
+    Parameters
+    ----------
+    bem : str
+        The name of the file containing the triangulations of the BEM surfaces
+        and the conductivities of the compartments. The standard ending for
+        this file is -bem.fif and it is produced either with the utility
+        mne_surf2bem or the convenience script mne_setup_forward_model.
+    sol_fname : None | str
+        The output file. None (the default) will employ the standard naming
+        scheme. To conform with the standard naming conventions the filename
+        should start with the subject name and end in "-bem-sol.fif".
+    method : 'linear' | 'constant'
+        The BEM approach.
+    """
+    cmd = ['mne_prepare_bem_model', '--bem', bem, '--method', method]
+    if sol_fname is not None:
+        cmd.extend(('--sol', sol_fname))
+    run_subprocess(cmd)
+
+
 def _block_diag(A, n):
     """Constructs a block diagonal from a packed structure
 
@@ -699,8 +722,10 @@ def write_forward_solution(fname, fwd, overwrite=False, verbose=None):
     #
     # MEG forward solution
     #
-    picks_meg = pick_types(fwd['info'], meg=True, eeg=False, exclude=[])
-    picks_eeg = pick_types(fwd['info'], meg=False, eeg=True, exclude=[])
+    picks_meg = pick_types(fwd['info'], meg=True, eeg=False, ref_meg=False,
+                           exclude=[])
+    picks_eeg = pick_types(fwd['info'], meg=False, eeg=True, ref_meg=False,
+                           exclude=[])
     n_meg = len(picks_meg)
     n_eeg = len(picks_eeg)
     row_names_meg = [fwd['sol']['row_names'][p] for p in picks_meg]
@@ -868,12 +893,12 @@ def _restrict_gain_matrix(G, info):
     if not (len(info['chs']) == G.shape[0]):
         raise ValueError("G.shape[0] and length of info['chs'] do not match: "
                          "%d != %d" % (G.shape[0], len(info['chs'])))
-    sel = pick_types(info, meg='grad', exclude=[])
+    sel = pick_types(info, meg='grad', ref_meg=False, exclude=[])
     if len(sel) > 0:
         G = G[sel]
         logger.info('    %d planar channels' % len(sel))
     else:
-        sel = pick_types(info, meg='mag', exclude=[])
+        sel = pick_types(info, meg='mag', ref_meg=False, exclude=[])
         if len(sel) > 0:
             G = G[sel]
             logger.info('    %d magnetometer or axial gradiometer '

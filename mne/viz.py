@@ -13,6 +13,7 @@ from itertools import cycle
 from functools import partial
 from copy import deepcopy
 import math
+from distutils.version import LooseVersion
 
 import difflib
 import tempfile
@@ -370,7 +371,8 @@ def plot_topo(evoked, layout=None, layout_scale=0.945, color=None,
     is_meg = any(types_used == set(k) for k in meg_types)
     if is_meg:
         types_used = list(types_used)[::-1]  # -> restore kwarg order
-        picks = [pick_types(info, meg=kk, exclude=[]) for kk in types_used]
+        picks = [pick_types(info, meg=kk, ref_meg=False, exclude=[])
+                 for kk in types_used]
     else:
         types_used_kwargs = dict((t, True) for t in types_used)
         picks = [pick_types(info, meg=False, **types_used_kwargs)]
@@ -1165,17 +1167,23 @@ def plot_evoked(evoked, picks=None, exclude='bads', unit=True, show=True,
             ch_types_used.append(t)
 
     axes_init = axes  # remember if axes where given as input
+    
+    fig = None
     if axes is None:
-        plt.clf()
-        axes = [plt.subplot(n_channel_types, 1, c + 1)
-                for c in range(n_channel_types)]
-    if not isinstance(axes, list):
+        fig, axes = plt.subplots(n_channel_types, 1)
+
+    if isinstance(axes, plt.Axes):
         axes = [axes]
+    elif isinstance(axes, np.ndarray):
+        axes = list(axes)
+
+    if axes_init is not None:
+        fig = axes[0].get_figure()
+    
     if not len(axes) == n_channel_types:
         raise ValueError('Number of axes (%g) must match number of channel '
                          'types (%g)' % (len(axes), n_channel_types))
 
-    fig = axes[0].get_figure()
 
     # instead of projecting during each iteration let's use the mixin here.
     if proj is True and evoked.proj is not True:
@@ -1202,22 +1210,22 @@ def plot_evoked(evoked, picks=None, exclude='bads', unit=True, show=True,
                 ax._get_lines.color_cycle = cycle(['k'])
 
             D = this_scaling * evoked.data[idx, :]
-            plt.axes(ax)
+            # plt.axes(ax)
             ax.plot(times, D.T)
             if xlim is not None:
                 if xlim == 'tight':
                     xlim = (times[0], times[-1])
-                plt.xlim(xlim)
+                ax.set_xlim(xlim)
             if ylim is not None and t in ylim:
-                plt.ylim(ylim[t])
-            plt.title(titles[t] + ' (%d channel%s)' % (
-                      len(D), 's' if len(D) > 1 else ''))
-            plt.xlabel('time (ms)')
-            plt.ylabel('data (%s)' % ch_unit)
+                ax.set_ylim(ylim[t])
+            ax.set_title(titles[t] + ' (%d channel%s)' % (
+                         len(D), 's' if len(D) > 1 else ''))
+            ax.set_xlabel('time (ms)')
+            ax.set_ylabel('data (%s)' % ch_unit)
 
             if hline is not None:
                 for h in hline:
-                    plt.axhline(h, color='r', linestyle='--', linewidth=2)
+                    ax.axhline(h, color='r', linestyle='--', linewidth=2)
 
     if axes_init is None:
         plt.subplots_adjust(0.175, 0.08, 0.94, 0.94, 0.2, 0.63)
@@ -1231,8 +1239,8 @@ def plot_evoked(evoked, picks=None, exclude='bads', unit=True, show=True,
                       plot_update_proj_callback=_plot_update_evoked)
         _draw_proj_checkbox(None, params)
 
-    if show:
-        plt.show()
+    if show and plt.get_backend() != 'agg':
+        fig.show()
 
     return fig
 
@@ -1485,9 +1493,12 @@ def plot_cov(cov, info, exclude=[], colorbar=True, proj=False, show_svd=True,
     ch_names = [n for n in cov.ch_names if not n in exclude]
     ch_idx = [cov.ch_names.index(n) for n in ch_names]
     info_ch_names = info['ch_names']
-    sel_eeg = pick_types(info, meg=False, eeg=True, exclude=exclude)
-    sel_mag = pick_types(info, meg='mag', eeg=False, exclude=exclude)
-    sel_grad = pick_types(info, meg='grad', eeg=False, exclude=exclude)
+    sel_eeg = pick_types(info, meg=False, eeg=True, ref_meg=False,
+                         exclude=exclude)
+    sel_mag = pick_types(info, meg='mag', eeg=False, ref_meg=False,
+                         exclude=exclude)
+    sel_grad = pick_types(info, meg='grad', eeg=False, ref_meg=False,
+                          exclude=exclude)
     idx_eeg = [ch_names.index(info_ch_names[c])
                for c in sel_eeg if info_ch_names[c] in ch_names]
     idx_mag = [ch_names.index(info_ch_names[c])
@@ -1549,7 +1560,7 @@ def plot_source_estimates(stc, subject=None, surface='inflated', hemi='lh',
                           smoothing_steps=10, fmin=5., fmid=10., fmax=15.,
                           transparent=True, alpha=1.0, time_viewer=False,
                           config_opts={}, subjects_dir=None, figure=None,
-                          views='lat'):
+                          views='lat', colorbar=True):
     """Plot SourceEstimates with PySurfer
 
     Note: PySurfer currently needs the SUBJECTS_DIR environment variable,
@@ -1604,13 +1615,22 @@ def plot_source_estimates(stc, subject=None, surface='inflated', hemi='lh',
         figure by it's id or create a new figure with the given id.
     views : str | list
         View to use. See surfer.Brain().
+    colorbar : bool
+        If True, display colorbar on scene.
 
     Returns
     -------
     brain : Brain
         A instance of surfer.viz.Brain from PySurfer.
     """
+    import surfer
     from surfer import Brain, TimeViewer
+
+    if hemi in ['split', 'both'] and LooseVersion(surfer.__version__) < '0.4':
+        raise NotImplementedError('hemi type "%s" not supported with your '
+                                  'version of pysurfer. Please upgrade to '
+                                  'version 0.4 or higher.' % hemi)
+
     try:
         import mayavi
         from mayavi import mlab
@@ -1680,7 +1700,8 @@ def plot_source_estimates(stc, subject=None, surface='inflated', hemi='lh',
         time = 1e3 * stc.times
         brain.add_data(data, colormap=colormap, vertices=vertices,
                        smoothing_steps=smoothing_steps, time=time,
-                       time_label=time_label, alpha=alpha, hemi=hemi)
+                       time_label=time_label, alpha=alpha, hemi=hemi,
+                       colorbar=colorbar)
 
         # scale colormap and set time (index) to display
         brain.scale_data_colormap(fmin=fmin, fmid=fmid, fmax=fmax,
@@ -1910,9 +1931,11 @@ def _prepare_topo_plot(obj, ch_type, layout):
     else:
         merge_grads = False
         if ch_type == 'eeg':
-            picks = pick_types(info, meg=False, eeg=True, exclude='bads')
+            picks = pick_types(info, meg=False, eeg=True, ref_meg=False,
+                               exclude='bads')
         else:
-            picks = pick_types(info, meg=ch_type, exclude='bads')
+            picks = pick_types(info, meg=ch_type, ref_meg=False,
+                               exclude='bads')
 
         if len(picks) == 0:
             raise ValueError("No channels of type %r" % ch_type)
@@ -1976,7 +1999,8 @@ def plot_image_epochs(epochs, picks=None, sigma=0.3, vmin=None,
 
     import matplotlib.pyplot as plt
     if picks is None:
-        picks = pick_types(epochs.info, meg=True, eeg=True, exclude='bads')
+        picks = pick_types(epochs.info, meg=True, eeg=True, ref_meg=False,
+                           exclude='bads')
 
     if units.keys() != scalings.keys():
         raise ValueError('Scalings and units must have the same keys.')
@@ -2542,7 +2566,7 @@ def plot_raw(raw, events=None, duration=10.0, start=0.0, n_channels=None,
     inds = list()
     types = list()
     for t in ['grad', 'mag']:
-        inds += [pick_types(info, meg=t, exclude=[])]
+        inds += [pick_types(info, meg=t, ref_meg=False, exclude=[])]
         types += [t] * len(inds[-1])
     pick_args = dict(meg=False, exclude=[])
     for t in ['eeg', 'eog', 'ecg', 'emg', 'ref_meg', 'stim', 'resp',
@@ -2673,6 +2697,7 @@ def plot_raw(raw, events=None, duration=10.0, start=0.0, n_channels=None,
 
     if show:
         plt.show(block=block)
+    
     return fig
 
 
@@ -3033,7 +3058,7 @@ def plot_raw_psds(raw, tmin=0.0, tmax=60.0, fmin=0, fmax=np.inf,
         picks_list = list()
         titles_list = list()
         for meg, eeg, name in zip(megs, eegs, names):
-            picks = pick_types(raw.info, meg=meg, eeg=eeg)
+            picks = pick_types(raw.info, meg=meg, eeg=eeg, ref_meg=False)
             if len(picks) > 0:
                 picks_list.append(picks)
                 titles_list.append(name)
@@ -3304,9 +3329,11 @@ def plot_epochs(epochs, epoch_idx=None, picks=None, scalings=None,
 
     if picks is None:
         if any('ICA' in k for k in epochs.ch_names):
-            picks = pick_types(epochs.info, misc=True, exclude=[])
+            picks = pick_types(epochs.info, misc=True, ref_meg=False,
+                               exclude=[])
         else:
-            picks = pick_types(epochs.info, meg=True, eeg=True, exclude=[])
+            picks = pick_types(epochs.info, meg=True, eeg=True, ref_meg=False,
+                               exclude=[])
     if len(picks) < 1:
         raise RuntimeError('No appropriate channels found. Please'
                            ' check your picks')
@@ -3413,8 +3440,8 @@ def plot_source_spectrogram(stcs, freq_bins, source_index=None, colorbar=False,
 
     # Finding the source with maximum source power
     if source_index is None:
-        max_source = np.unravel_index(source_power.argmax(),
-                                      source_power.shape)[1]
+        source_index = np.unravel_index(source_power.argmax(),
+                                        source_power.shape)[1]
 
     # Preparing time-frequency cell boundaries for plotting
     stc = stcs[0]
@@ -3437,7 +3464,7 @@ def plot_source_spectrogram(stcs, freq_bins, source_index=None, colorbar=False,
 
     # Plotting the results
     plt.figure(figsize=(9, 6))
-    plt.pcolor(time_grid, freq_grid, source_power[:, max_source, :],
+    plt.pcolor(time_grid, freq_grid, source_power[:, source_index, :],
                cmap=plt.cm.jet)
     ax = plt.gca()
 

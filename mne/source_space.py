@@ -7,6 +7,7 @@ import numpy as np
 import os
 import os.path as op
 from scipy import sparse, linalg
+from copy import deepcopy
 
 from .fiff.constants import FIFF
 from .fiff.tree import dir_tree_find
@@ -73,6 +74,17 @@ class SourceSpaces(list):
             ss_repr.append('<%s>' % r)
         ss_repr = ', '.join(ss_repr)
         return "<SourceSpaces: [{ss}]>".format(ss=ss_repr)
+
+    def copy(self):
+        """Make a copy of the source spaces
+
+        Returns
+        -------
+        src : instance of SourceSpaces
+            The copied source spaces.
+        """
+        src = deepcopy(self)
+        return src
 
     def save(self, fname):
         """Save the source spaces to a fif file
@@ -944,9 +956,9 @@ def setup_source_space(subject, fname=True, spacing='oct6', surface='white',
 def setup_volume_source_space(subject, fname=None, pos=5.0, mri=None,
                               sphere=(0.0, 0.0, 0.0, 90.0), bem=None,
                               surface=None, mindist=5.0, exclude=0.0,
-                              use_all=False, overwrite=False,
-                              subjects_dir=None, verbose=None):
-    """Setup a volume source space with grid spacing
+                              overwrite=False, subjects_dir=None,
+                              verbose=None):
+    """Setup a volume source space with grid spacing or discrete source space
 
     Parameters
     ----------
@@ -957,14 +969,15 @@ def setup_volume_source_space(subject, fname=None, pos=5.0, mri=None,
         (only returned).
     pos : float | dict
         Positions to use for sources. If float, a grid will be constructed
-        with the spacing given by `pos` in mm. If dict, pos['rr'] and
-        pos['nn'] will be used as the source space locations (in meters)
-        and normals, respectively.
+        with the spacing given by `pos` in mm, generating a volume source
+        space. If dict, pos['rr'] and pos['nn'] will be used as the source
+        space locations (in meters) and normals, respectively, creating a
+        discrete source space.
     mri : str | None
         The filename of an MRI volume (mgh or mgz) to create the
         interpolation matrix over. Source estimates obtained in the
         volume source space can then be morphed onto the MRI volume
-        using this interpolator. If pos is supplied, this can be None.
+        using this interpolator. If pos is a dict, this can be None.
     sphere : array_like (length 4)
         Define spherical source space bounds using origin and radius given
         by (ox, oy, oz, rad) in mm. Only used if `bem` and `surface` are
@@ -994,6 +1007,13 @@ def setup_volume_source_space(subject, fname=None, pos=5.0, mri=None,
         The source space. Note that this list will have length 1 for
         compatibility reasons, as most functions expect source spaces
         to be provided as lists).
+
+    Notes
+    -----
+    To create a discrete source space, `pos` must be a dict. To create a
+    volume source space, `pos` must be a float. Note that if a discrete
+    source space is created, then `mri` is optional (can be None), whereas
+    for a volume source space, `mri` must be provided.
     """
     if bem is not None and surface is not None:
         raise ValueError('Only one of "bem" and "surface" should be '
@@ -1005,6 +1025,12 @@ def setup_volume_source_space(subject, fname=None, pos=5.0, mri=None,
             raise RuntimeError('nibabel with "vox2ras_tkr" property is '
                                'required to process mri data, consider '
                                'installing and/or updating nibabel')
+    elif not isinstance(pos, dict):
+        # "pos" will create a discrete src, so we don't need "mri"
+        # if "pos" is None, we must have "mri" b/c it will be vol src
+        raise RuntimeError('"mri" must be provided if "pos" is not a dict '
+                           '(i.e., if a volume instead of discrete source '
+                           'space is desired)')
 
     sphere = np.asarray(sphere)
     if sphere.size != 4:
