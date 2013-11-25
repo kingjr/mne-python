@@ -108,13 +108,10 @@ class _TempDir(str):
 
     We cannot simply use __del__() method for cleanup here because the rmtree
     function may be cleaned up before this object, so we use the atexit module
-    instead. Passing del_after and print_del kwargs to the constructor are
-    helpful primarily for debugging purposes.
+    instead.
     """
-    def __new__(self, del_after=True, print_del=False):
+    def __new__(self):
         new = str.__new__(self, tempfile.mkdtemp())
-        self._del_after = del_after
-        self._print_del = print_del
         return new
 
     def __init__(self):
@@ -122,10 +119,7 @@ class _TempDir(str):
         atexit.register(self.cleanup)
 
     def cleanup(self):
-        if self._del_after is True:
-            if self._print_del is True:
-                print 'Deleting %s ...' % self._path
-            rmtree(self._path, ignore_errors=True)
+        rmtree(self._path, ignore_errors=True)
 
 
 def estimate_rank(data, tol=1e-4, return_singular=False,
@@ -212,14 +206,14 @@ def run_subprocess(command, *args, **kwargs):
 
     logger.info("Running subprocess: %s" % str(command))
     p = subprocess.Popen(command, *args, **kwargs)
-    stdout, stderr = p.communicate()
+    stdout_, stderr = p.communicate()
 
-    if stdout.strip():
-        logger.info("stdout:\n%s" % stdout)
+    if stdout_.strip():
+        logger.info("stdout:\n%s" % stdout_)
     if stderr.strip():
         logger.info("stderr:\n%s" % stderr)
 
-    output = (stdout, stderr)
+    output = (stdout_, stderr)
     if p.returncode:
         print output
         raise subprocess.CalledProcessError(p.returncode, command, output)
@@ -244,6 +238,12 @@ def pformat(temp, **fmt):
     formatter = Formatter()
     mapping = _FormatDict(fmt)
     return formatter.vformat(temp, (), mapping)
+
+
+def trait_wraith(*args, **kwargs):
+    # Stand in for traits to allow importing traits based modules when the
+    # traits library is not installed
+    return lambda x: x
 
 
 ###############################################################################
@@ -498,13 +498,34 @@ def requires_tvtk(function):
     def dec(*args, **kwargs):
         skip = False
         try:
-            from tvtk.api import tvtk
+            from tvtk.api import tvtk  # analysis:ignore
         except ImportError:
             skip = True
 
         if skip is True:
             from nose.plugins.skip import SkipTest
             raise SkipTest('Test %s skipped, requires TVTK'
+                           % function.__name__)
+        ret = function(*args, **kwargs)
+
+        return ret
+
+    return dec
+
+
+def requires_statsmodels(function):
+    """Decorator to skip test if statsmodels is not available"""
+    @wraps(function)
+    def dec(*args, **kwargs):
+        skip = False
+        try:
+            from tvtk.api import tvtk  # analysis:ignore
+        except ImportError:
+            skip = True
+
+        if skip is True:
+            from nose.plugins.skip import SkipTest
+            raise SkipTest('Test %s skipped, requires statsmodels'
                            % function.__name__)
         ret = function(*args, **kwargs)
 
@@ -525,6 +546,7 @@ def make_skipper_dec(module, skip_str):
 
 requires_sklearn = make_skipper_dec('sklearn', 'scikit-learn not installed')
 requires_nitime = make_skipper_dec('nitime', 'nitime not installed')
+requires_traits = make_skipper_dec('traits', 'traits not installed')
 
 
 def _mne_fs_not_in_env():
@@ -1209,3 +1231,31 @@ def _check_pandas_index_arguments(index, defaults):
         options = [', '.join(e) for e in [invalid_choices, defaults]]
         raise ValueError('[%s] is not an valid option. Valid index'
                          'values are \'None\' or %s' % tuple(options))
+
+
+def _clean_names(names, remove_whitespace=False, before_dash=True):
+    """ Remove white-space on topo matching
+
+    This function handles different naming
+    conventions for old VS new VectorView systems (`remove_whitespace`).
+    Also it allows to remove system specific parts in CTF channel names
+    (`before_dash`).
+
+    Usage
+    -----
+    # for new VectorView (only inside layout) 
+    ch_names = _clean_names(epochs.ch_names, remove_whitespace=True)
+
+    # for CTF
+    ch_names = _clean_names(epochs.ch_names, before_dash=True)
+
+    """
+    cleaned = []
+    for name in names:
+        if ' ' in name and remove_whitespace:
+            name = name.replace(' ', '')
+        if '-' in name and before_dash:
+            name = name.split('-')[0]
+        cleaned.append(name)
+
+    return cleaned

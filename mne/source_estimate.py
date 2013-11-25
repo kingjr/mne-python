@@ -20,7 +20,7 @@ from .utils import (get_subjects_dir, _check_subject,
                     _check_pandas_index_arguments, _check_pandas_installed,
                     logger, verbose)
 from .viz import plot_source_estimates
-from . fixes import in1d
+from .fixes import in1d
 
 
 def _read_stc(filename):
@@ -345,48 +345,6 @@ def _make_stc(data, vertices, tmin=None, tstep=None, subject=None):
     return stc
 
 
-class _NotifyArray(np.ndarray):
-    """Array class that executes a callback when it is modified
-    """
-    def __new__(cls, input_array, modify_callback=None):
-        obj = np.asarray(input_array).view(cls)
-        obj.modify_callback = modify_callback
-        return obj
-
-    def __array_finalize__(self, obj):
-        if obj is None:
-            # an empty constructor was used
-            return
-
-        # try to copy the callback
-        self.modify_callback = getattr(obj, 'modify_callback', None)
-
-    def _modified_(self):
-        """Execute the callback if it is set"""
-        if self.modify_callback is not None:
-            self.modify_callback()
-
-    def __getattribute__(self, name):
-        # catch ndarray methods that modify the array inplace
-        if name in ['fill', 'itemset', 'resize', 'sort']:
-            self._modified_()
-
-        return object.__getattribute__(self, name)
-
-    def __setitem__(self, item, value):
-        self._modified_()
-        np.ndarray.__setitem__(self, item, value)
-
-    def __array_wrap__(self, out_arr, context=None):
-        # this method is called whenever a numpy ufunc (+, +=..) is called
-        # the last entry in context is the array that receives the result
-        if (context is not None and len(context[1]) == 3
-                and context[1][2] is self):
-            self._modified_()
-
-        return np.ndarray.__array_wrap__(self, out_arr, context)
-
-
 def _verify_source_estimate_compat(a, b):
     """Make sure two SourceEstimates are compatible for arith. operations"""
     compat = False
@@ -481,20 +439,17 @@ class _BaseSourceEstimate(object):
         self.verbose = verbose
         self._kernel = kernel
         self._sens_data = sens_data
+        self._kernel_removed = False
         self.times = None
         self._update_times()
         self.subject = _check_subject(None, subject, False)
 
     def _remove_kernel_sens_data_(self):
-        """Remove kernel and sensor space data
-
-        Note: self._data is also computed if it is None
+        """Remove kernel and sensor space data and compute self._data
         """
         if self._kernel is not None or self._sens_data is not None:
-            # we can no longer use the kernel and sens_data
-            logger.info('STC data modified: removing kernel and sensor data')
-            if self._data is None:
-                self._data = np.dot(self._kernel, self._sens_data)
+            self._kernel_removed = True
+            self._data = np.dot(self._kernel, self._sens_data)
             self._kernel = None
             self._sens_data = None
 
@@ -517,7 +472,6 @@ class _BaseSourceEstimate(object):
 
         if self._kernel is not None and self._sens_data is not None:
             self._sens_data = self._sens_data[:, mask]
-            self._data = None  # will be recomputed when data is accessed
         else:
             self._data = self._data[:, mask]
 
@@ -564,11 +518,9 @@ class _BaseSourceEstimate(object):
     @property
     def data(self):
         if self._data is None:
-            # compute the solution the first time the data is accessed
-            # return a "notify array", so we can later remove the kernel
-            # and sensor data if the user modifies self._data
-            self._data = _NotifyArray(np.dot(self._kernel, self._sens_data),
-                modify_callback=self._remove_kernel_sens_data_)
+            # compute the solution the first time the data is accessed and
+            # remove the kernel and sensor data
+            self._remove_kernel_sens_data_()
         return self._data
 
     @property
@@ -738,8 +690,7 @@ class _BaseSourceEstimate(object):
                         tmin=tmin, tstep=width, subject=self.subject)
         return stc
 
-    def transform_data(self, transform_fun, fun_args=None,
-                       idx=None, tmin_idx=None, tmax_idx=None, **kwargs):
+    def transform_data(self, func, idx=None, tmin_idx=None, tmax_idx=None):
         """Get data after a linear (time) transform has been applied
 
         The transorm is applied to each source time course independently.
@@ -747,14 +698,13 @@ class _BaseSourceEstimate(object):
 
         Parameters
         ----------
-        transform_fun : callable
-            The transform to be applied. The first parameter of the function
-            is the input data. The first return value is the transformed
-            data, remaining outputs are ignored. The first dimension of the
+        func : callable
+            The transform to be applied, including parameters (see, e.g.,
+            mne.fixes.partial). The first parameter of the function is the
+            input data. The first return value is the transformed data,
+            remaining outputs are ignored. The first dimension of the
             transformed data has to be the same as the first dimension of the
             input data.
-        fun_args : tuple | None
-            Additional parameters to be passed to transform_fun.
         idx : array | None
             Indicices of source time courses for which to compute transform.
             If None, all time courses are used.
@@ -764,8 +714,6 @@ class _BaseSourceEstimate(object):
         tmax_idx : int | None
             Index of the first time point not to include. If None, time points
             up to (and including) the last time point are included.
-        **kwargs : dict
-            Keyword arguments to be passed to transform_fun.
 
         Returns
         -------
@@ -784,21 +732,20 @@ class _BaseSourceEstimate(object):
             # use all time courses by default
             idx = slice(None, None)
 
-        if fun_args is None:
-            fun_args = tuple()
-
         if self._kernel is None and self._sens_data is None:
+            if self._kernel_removed:
+                warnings.warn('Performance can be improved by not accessing '
+                              'the data attribute before calling this method.')
+
             # transform source space data directly
-            data_t = transform_fun(self.data[idx, tmin_idx:tmax_idx],
-                                   *fun_args, **kwargs)
+            data_t = func(self.data[idx, tmin_idx:tmax_idx])
 
             if isinstance(data_t, tuple):
                 # use only first return value
                 data_t = data_t[0]
         else:
             # apply transform in sensor space
-            sens_data_t = transform_fun(self._sens_data[:, tmin_idx:tmax_idx],
-                                        *fun_args, **kwargs)
+            sens_data_t = func(self._sens_data[:, tmin_idx:tmax_idx])
 
             if isinstance(sens_data_t, tuple):
                 # use only first return value
@@ -819,8 +766,7 @@ class _BaseSourceEstimate(object):
 
         return data_t
 
-    def transform(self, func, func_args=None,
-                  idx=None, tmin=None, tmax=None, copy=False, **kwargs):
+    def transform(self, func, idx=None, tmin=None, tmax=None, copy=False):
         """Apply linear transform
 
         The transform is applied to each source time course independently.
@@ -828,20 +774,19 @@ class _BaseSourceEstimate(object):
         Parameters
         ----------
         func : callable
-            The transform to be applied. The first parameter of the function
-            is the input data. The first two dimensions of the transformed
-            data should be (i) vertices and (ii) time.  Transforms which yield
-            3D output (e.g. time-frequency transforms) are valid, so long as
-            the first two dimensions are vertices and time.  In this case, the
-            copy parameter must be True and a list of SourceEstimates, rather
-            than a single SourceEstimate, will be returned, one for each index
-            of the 3rd dimension of the transformed data.  In the case of
-            transforms yielding 2D output (e.g. filtering), the user has the
-            option of modifying the input inplace (copy = False) or returning
-            a new instance of SourceEstimate (copy = True) with the
-            transformed data.
-        func_args : tuple | None
-            Additional parameters to be passed to func.
+            The transform to be applied, including parameters (see, e.g.,
+            mne.fixes.partial). The first parameter of the function is the
+            input data. The first two dimensions of the transformed data
+            should be (i) vertices and (ii) time.  Transforms which yield 3D
+            output (e.g. time-frequency transforms) are valid, so long as the
+            first two dimensions are vertices and time.  In this case, the
+            copy parameter (see below) must be True and a list of
+            SourceEstimates, rather than a single instance of SourceEstimate,
+            will be returned, one for each index of the 3rd dimension of the
+            transformed data.  In the case of transforms yielding 2D output
+            (e.g. filtering), the user has the option of modifying the input
+            inplace (copy = False) or returning a new instance of
+            SourceEstimate (copy = True) with the transformed data.
         idx : array | None
             Indices of source time courses for which to compute transform.
             If None, all time courses are used.
@@ -852,8 +797,6 @@ class _BaseSourceEstimate(object):
         copy : bool
             If True, return a new instance of SourceEstimate instead of
             modifying the input inplace.
-        **kwargs : dict
-            Keyword arguments to be passed to func.
 
         Returns
         -------
@@ -886,9 +829,8 @@ class _BaseSourceEstimate(object):
             tmax = float(tmax)
             tmax_idx = np.where(times <= tmax)[0][-1]
 
-        data_t = self.transform_data(func, fun_args=func_args, idx=idx,
-                                     tmin_idx=tmin_idx, tmax_idx=tmax_idx,
-                                     **kwargs)
+        data_t = self.transform_data(func, idx=idx, tmin_idx=tmin_idx,
+                                     tmax_idx=tmax_idx)
 
         # account for change in n_vertices
         if idx is not None:

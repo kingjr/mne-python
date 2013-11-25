@@ -38,7 +38,7 @@ from .fiff import show_fiff, FIFF
 from .fiff.pick import channel_type, pick_types
 from .fiff.proj import make_projector, setup_proj
 from .fixes import normalize_colors
-from .utils import create_chunks
+from .utils import create_chunks, _clean_names
 from .time_frequency import compute_raw_psd
 
 COLORS = ['b', 'g', 'r', 'c', 'm', 'y', 'k', '#473C8B', '#458B74',
@@ -79,35 +79,6 @@ def _mutable_defaults(*mappings):
     return out
 
 
-def _clean_names(names):
-    """ Remove white-space on topo matching
-
-    Over the years, Neuromag systems employed inconsistent handling of
-    white-space in layout names. This function handles different naming
-    conventions and hence should be used in each topography-plot to
-    warrant compatibility across systems.
-
-    Usage
-    -----
-    Wrap this function around channel and layout names:
-    ch_names = _clean_names(epochs.ch_names)
-
-    for n in _clean_names(layout.names):
-        if n in ch_names:
-            # prepare plot
-
-    """
-    cleaned = []
-    for name in names:
-        if ' ' in name:
-            name = name.replace(' ', '')
-        if '-' in name:
-            name = name.split('-')[0]
-        cleaned.append(name)
-
-    return cleaned
-
-
 def _check_delayed_ssp(container):
     """ Aux function to be used for interactive SSP selection
     """
@@ -133,18 +104,19 @@ def tight_layout(pad=1.2, h_pad=None, w_pad=None):
         Defaults to `pad_inches`.
     """
     import matplotlib.pyplot as plt
-    if plt.get_backend().lower() != 'agg':
-        try:
-            plt.tight_layout(pad=pad, h_pad=h_pad, w_pad=w_pad)
-        except:
-            msg = ('Matplotlib function \'tight_layout\'%s.'
-                   ' Skipping subpplot adjusment.')
-            if not hasattr(plt, 'tight_layout'):
-                case = ' is not available'
-            else:
-                case = (' is not supported by your backend: `%s`'
-                        % plt.get_backend())
-            warn(msg % case)
+    try:
+        fig = plt.gcf()
+        fig.tight_layout(pad=pad, h_pad=h_pad, w_pad=w_pad)
+        fig.canvas.draw()
+    except:
+        msg = ('Matplotlib function \'tight_layout\'%s.'
+               ' Skipping subpplot adjusment.')
+        if not hasattr(plt, 'tight_layout'):
+            case = ' is not available'
+        else:
+            case = (' is not supported by your backend: `%s`'
+                    % plt.get_backend())
+        warn(msg % case)
 
 
 def _plot_topo(info=None, times=None, show_func=None, layout=None,
@@ -174,7 +146,7 @@ def _plot_topo(info=None, times=None, show_func=None, layout=None,
             cb_yticks = plt.getp(cb.ax.axes, 'yticklabels')
             plt.setp(cb_yticks, color='w')
         plt.rcParams['axes.edgecolor'] = border
-        for idx, name in enumerate(_clean_names(layout.names)):
+        for idx, name in enumerate(layout.names):
             if name in ch_names:
                 ax = plt.axes(pos[idx], axisbg='k')
                 ch_idx = ch_names.index(name)
@@ -358,11 +330,9 @@ def plot_topo(evoked, layout=None, layout_scale=0.945, color=None,
 
     if layout is None:
         from .layouts.layout import find_layout
-        layout = find_layout(info['chs'])
+        layout = find_layout(info)
 
     # XXX. at the moment we are committed to 1- / 2-sensor-types layouts
-    layout = copy.deepcopy(layout)
-    layout.names = _clean_names(layout.names)
     chs_in_layout = set(layout.names) & set(ch_names)
     types_used = set(channel_type(info, ch_names.index(ch))
                      for ch in chs_in_layout)
@@ -494,9 +464,7 @@ def plot_topo_tfr(epochs, tfr, freq, layout=None, colorbar=True, vmin=None,
 
     if layout is None:
         from .layouts.layout import find_layout
-        layout = find_layout(epochs.info['chs'])
-    layout = copy.deepcopy(layout)
-    layout.names = _clean_names(layout.names)
+        layout = find_layout(epochs.info)
 
     tfr_imshow = partial(_imshow_tfr, tfr=tfr.copy(), freq=freq)
 
@@ -579,9 +547,7 @@ def plot_topo_power(epochs, power, freq, layout=None, baseline=None,
         vmax = power.max()
     if layout is None:
         from .layouts.layout import find_layout
-        layout = find_layout(epochs.info['chs'])
-    layout = copy.deepcopy(layout)
-    layout.names = _clean_names(layout.names)
+        layout = find_layout(epochs.info)
 
     power_imshow = partial(_imshow_tfr, tfr=power.copy(), freq=freq)
 
@@ -662,9 +628,7 @@ def plot_topo_phase_lock(epochs, phase, freq, layout=None, baseline=None,
         vmax = phase.max()
     if layout is None:
         from .layouts.layout import find_layout
-        layout = find_layout(epochs.info['chs'])
-    layout = copy.deepcopy(layout)
-    layout.names = _clean_names(layout.names)
+        layout = find_layout(epochs.info)
 
     phase_imshow = partial(_imshow_tfr, tfr=phase.copy(), freq=freq)
 
@@ -741,7 +705,7 @@ def plot_topo_image_epochs(epochs, layout=None, sigma=0.3, vmin=None,
 
     Returns
     -------
-    fig : instacne fo matplotlib figure
+    fig : instance of matplotlib figure
         Figure distributing one image per channel across sensor topography.
     """
     scalings = _mutable_defaults(('scalings', scalings))[0]
@@ -752,9 +716,7 @@ def plot_topo_image_epochs(epochs, layout=None, sigma=0.3, vmin=None,
         vmax = data.max()
     if layout is None:
         from .layouts.layout import find_layout
-        layout = find_layout(epochs.info['chs'])
-    layout = copy.deepcopy(layout)
-    layout.names = _clean_names(layout.names)
+        layout = find_layout(epochs.info)
 
     erf_imshow = partial(_erfimage_imshow, scalings=scalings, order=order,
                          data=data, epochs=epochs, sigma=sigma)
@@ -959,6 +921,11 @@ def plot_projs_topomap(projs, layout=None, cmap='RdBu_r', sensors='k,',
         multiple topomaps at a time).
     show : bool
         Show figures if True
+
+    Returns
+    -------
+    fig : instance of matplotlib figure
+        Figure distributing one image per channel across sensor topography.
     """
     import matplotlib.pyplot as plt
 
@@ -973,7 +940,8 @@ def plot_projs_topomap(projs, layout=None, cmap='RdBu_r', sensors='k,',
     nrows = math.floor(math.sqrt(n_projs))
     ncols = math.ceil(n_projs / nrows)
 
-    plt.clf()
+    fig = plt.gcf()
+    fig.clear()
     for k, proj in enumerate(projs):
 
         ch_names = _clean_names(proj['data']['col_names'])
@@ -981,8 +949,6 @@ def plot_projs_topomap(projs, layout=None, cmap='RdBu_r', sensors='k,',
 
         idx = []
         for l in layout:
-            l = copy.deepcopy(l)
-            l.names = _clean_names(l.names)
             is_vv = l.kind.startswith('Vectorview')
             if is_vv:
                 from .layouts.layout import _pair_grad_sensors_from_ch_names
@@ -1013,9 +979,11 @@ def plot_projs_topomap(projs, layout=None, cmap='RdBu_r', sensors='k,',
         else:
             raise RuntimeError('Cannot find a proper layout for projection %s'
                                % proj['desc'])
-
-    if show:
-        plt.show()
+    fig = ax.get_figure()
+    if show and plt.get_backend() != 'agg':
+        fig.show()
+    
+    return fig
 
 
 def plot_topomap(data, pos, vmax=None, cmap='RdBu_r', sensors='k,', res=100,
@@ -1071,6 +1039,10 @@ def plot_topomap(data, pos, vmax=None, cmap='RdBu_r', sensors='k,', res=100,
 
     xmin, xmax = pos_x.min(), pos_x.max()
     ymin, ymax = pos_y.min(), pos_y.max()
+    if any([not pos_y.any(), not pos_x.any()]):
+        raise RuntimeError('No position information found, cannot compute '
+                           'geometries for topomap.')
+
     triang = delaunay.Triangulation(pos_x, pos_y)
     interp = triang.linear_interpolator(data)
     x = np.linspace(xmin, xmax, res)
@@ -1167,11 +1139,10 @@ def plot_evoked(evoked, picks=None, exclude='bads', unit=True, show=True,
             ch_types_used.append(t)
 
     axes_init = axes  # remember if axes where given as input
-    
+
     fig = None
     if axes is None:
         fig, axes = plt.subplots(n_channel_types, 1)
-
     if isinstance(axes, plt.Axes):
         axes = [axes]
     elif isinstance(axes, np.ndarray):
@@ -1179,11 +1150,10 @@ def plot_evoked(evoked, picks=None, exclude='bads', unit=True, show=True,
 
     if axes_init is not None:
         fig = axes[0].get_figure()
-    
+
     if not len(axes) == n_channel_types:
         raise ValueError('Number of axes (%g) must match number of channel '
                          'types (%g)' % (len(axes), n_channel_types))
-
 
     # instead of projecting during each iteration let's use the mixin here.
     if proj is True and evoked.proj is not True:
@@ -1241,6 +1211,7 @@ def plot_evoked(evoked, picks=None, exclude='bads', unit=True, show=True,
 
     if show and plt.get_backend() != 'agg':
         fig.show()
+        fig.canvas.draw()  # for axes plots update axes.
 
     return fig
 
@@ -1300,7 +1271,7 @@ def _draw_proj_checkbox(event, params, draw_current_state=True):
     params['proj_checks'] = proj_checks
     # this should work for non-test cases
     try:
-        fig_proj.canvas.show()
+        fig_proj.show()
     except Exception:
         pass
 
@@ -1910,17 +1881,13 @@ def _prepare_topo_plot(obj, ch_type, layout):
     info = copy.deepcopy(obj.info)
     if layout is None and ch_type is not 'eeg':
         from .layouts.layout import find_layout
-        layout = find_layout(info['chs'])
+        layout = find_layout(info)
     elif layout == 'auto':
         layout = None
 
     info['ch_names'] = _clean_names(info['ch_names'])
     for ii, this_ch in enumerate(info['chs']):
         this_ch['ch_name'] = info['ch_names'][ii]
-
-    if layout is not None:
-        layout = copy.deepcopy(layout)
-        layout.names = _clean_names(layout.names)
 
     # special case for merging grad channels
     if (ch_type == 'grad' and FIFF.FIFFV_COIL_VV_PLANAR_T1 in
@@ -2697,7 +2664,7 @@ def plot_raw(raw, events=None, duration=10.0, start=0.0, n_channels=None,
 
     if show:
         plt.show(block=block)
-    
+
     return fig
 
 
@@ -3183,17 +3150,6 @@ def _prepare_trellis(n_cells, max_col):
     return fig, axes
 
 
-def _plot_epochs_get_data(epochs, epoch_idx, n_channels, times, picks,
-                          scalings, types):
-    """Aux function
-    """
-    data = np.zeros((len(epoch_idx), n_channels, len(times)))
-    for ii, epoch in enumerate(epochs.get_data()[epoch_idx][:, picks]):
-        for jj, (this_type, this_channel) in enumerate(zip(types, epoch)):
-            data[ii, jj] = this_channel / scalings[this_type]
-    return data
-
-
 def _draw_epochs_axes(epoch_idx, good_ch_idx, bad_ch_idx, data, times, axes,
                       title_str, axes_handler):
     """Aux functioin"""
@@ -3245,10 +3201,8 @@ def _epochs_navigation_onclick(event, params):
         p['idx_handler'].rotate(here)
         p['axes_handler'].rotate(here)
         this_idx = p['idx_handler'][0]
-        data = _plot_epochs_get_data(p['epochs'], this_idx, p['n_channels'],
-                                     p['times'], p['picks'], p['scalings'],
-                                     p['types'])
-        _draw_epochs_axes(this_idx, p['good_ch_idx'], p['bad_ch_idx'], data,
+        _draw_epochs_axes(this_idx, p['good_ch_idx'], p['bad_ch_idx'],
+                          p['data'][this_idx],
                           p['times'], p['axes'], p['title_str'],
                           p['axes_handler'])
             # XXX don't ask me why
@@ -3259,6 +3213,8 @@ def _epochs_axes_onclick(event, params):
     """Aux function"""
     reject_color = (0.8, 0.8, 0.8)
     ax = event.inaxes
+    if event.inaxes is None:
+        return
     p = params
     here = vars(ax)[p['axes_handler'][0]]
     if here.get('reject', None) is False:
@@ -3338,13 +3294,16 @@ def plot_epochs(epochs, epoch_idx=None, picks=None, scalings=None,
         raise RuntimeError('No appropriate channels found. Please'
                            ' check your picks')
     times = epochs.times * 1e3
-    n_channels = len(picks)
+    n_channels = epochs.info['nchan']
     types = [channel_type(epochs.info, idx) for idx in
              picks]
 
     # preallocation needed for min / max scaling
-    data = _plot_epochs_get_data(epochs, idx_handler[0], n_channels,
-                                 times, picks, scalings, types)
+    data = np.zeros((len(epochs.events), n_channels, len(times)))
+    for ii, epoch in enumerate(epochs.get_data()):
+        for jj, (this_type, this_channel) in enumerate(zip(types, epoch)):
+            data[ii, jj] = this_channel / scalings[this_type]
+
     n_events = len(epochs.events)
     epoch_idx = epoch_idx[:n_events]
     idx_handler = deque(create_chunks(epoch_idx, 20))
@@ -3359,9 +3318,9 @@ def plot_epochs(epochs, epoch_idx=None, picks=None, scalings=None,
     else:
         good_ch_idx = np.arange(n_channels)
 
-    fig, axes = _prepare_trellis(len(data), max_col=5)
+    fig, axes = _prepare_trellis(len(data[idx_handler[0]]), max_col=5)
     axes_handler = deque(range(len(idx_handler)))
-    for ii, data_, ax in zip(idx_handler[0], data, axes):
+    for ii, data_, ax in zip(idx_handler[0], data[idx_handler[0]], axes):
         ax.plot(times, data_[good_ch_idx].T, color='k')
         if bad_ch_idx is not None:
             ax.plot(times, data_[bad_ch_idx].T, color='r')
@@ -3389,11 +3348,9 @@ def plot_epochs(epochs, epoch_idx=None, picks=None, scalings=None,
         'fig': fig,
         'idx_handler': idx_handler,
         'epochs': epochs,
-        'n_channels': n_channels,
         'picks': picks,
         'times': times,
         'scalings': scalings,
-        'types': types,
         'good_ch_idx': good_ch_idx,
         'bad_ch_idx': bad_ch_idx,
         'axes': axes,
@@ -3402,7 +3359,8 @@ def plot_epochs(epochs, epoch_idx=None, picks=None, scalings=None,
         'reject-quit': mpl.widgets.Button(ax3, 'reject-quit'),
         'title_str': title_str,
         'reject_idx': [],
-        'axes_handler': axes_handler
+        'axes_handler': axes_handler,
+        'data': data
     }
     fig.canvas.mpl_connect('button_press_event',
                            partial(_epochs_axes_onclick, params=params))
@@ -3436,6 +3394,8 @@ def plot_source_spectrogram(stcs, freq_bins, source_index=None, colorbar=False,
     import matplotlib.pyplot as plt
 
     # Gathering results for each time window
+    if len(stcs) == 0:
+        raise ValueError('cannot plot spectrogram if len(stcs) == 0')
     source_power = np.array([stc.data for stc in stcs])
 
     # Finding the source with maximum source power
@@ -3454,7 +3414,7 @@ def plot_source_spectrogram(stcs, freq_bins, source_index=None, colorbar=False,
     gap_bounds = []
     for i in range(len(freq_bins) - 1):
         lower_bound = freq_bins[i][1]
-        upper_bound = freq_bins[i+1][0]
+        upper_bound = freq_bins[i + 1][0]
         if lower_bound != upper_bound:
             freq_bounds.remove(lower_bound)
             gap_bounds.append((lower_bound, upper_bound))
@@ -3494,7 +3454,7 @@ def plot_source_spectrogram(stcs, freq_bins, source_index=None, colorbar=False,
     # Covering frequency gaps with horizontal bars
     for lower_bound, upper_bound in gap_bounds:
         plt.barh(lower_bound, time_bounds[-1] - time_bounds[0], upper_bound -
-                 lower_bound, time_bounds[0], color='lightgray')
+                 lower_bound, time_bounds[0], color='#666666')
 
     if show:
         plt.show()
