@@ -1360,13 +1360,14 @@ class Epochs(_BaseEpochs, ToDataFrameMixin):
         ----------
         sfreq : float
             New sample rate to use
-        npad : int
-            Amount to pad the start and end of the data.
-        window : string or tuple
+        npad : int, optional
+            Amount to pad the start and end of the data. Defaults to 100.
+        window : string or tuple, optional
             Window to use in resampling. See scipy.signal.resample.
-        n_jobs : int
-            Number of jobs to run in parallel.
-        verbose : bool, str, int, or None
+            Defaults to 'boxcar'.
+        n_jobs : int, optional
+            Number of jobs to run in parallel. Defaults to 1.
+        verbose : bool, str, int, or None, optional.
             If not None, override default verbose level (see mne.verbose).
             Defaults to self.verbose.
 
