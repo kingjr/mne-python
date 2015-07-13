@@ -27,6 +27,8 @@ Changelog
 
     - Add support for BEM solution computation :func:`mne.make_bem_solution` by `Eric Larson`_
 
+    - Add support for decoding sensors' evoked response across time by `Jean-Remi King`_
+
 BUG
 ~~~
 
