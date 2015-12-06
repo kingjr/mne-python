@@ -360,7 +360,6 @@ def _predict_slices(X, estimators, cv, slices, predict_mode):
     return out
 
 
-#@profile
 def _predict_time_loop(X, estimators, cv, slices, predict_mode):
     """Aux function of GeneralizationAcrossTime
 
@@ -665,7 +664,7 @@ def _sliding_window(times, window_params):
 
     return window_params
 
-#@profile
+
 def _predict(X, estimators, is_single_time_sample):
     """Aux function of GeneralizationAcrossTime
 
