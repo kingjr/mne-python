@@ -38,7 +38,7 @@ from ..channels.channels import _get_T1T2_mag_inds
 def maxwell_filter(raw, origin='auto', int_order=8, ext_order=3,
                    calibration=None, cross_talk=None, st_duration=None,
                    st_correlation=0.98, coord_frame='head', destination=None,
-                   regularize='in', verbose=None):
+                   regularize='in', acquisition_system='elekta', verbose=None):
     """Apply Maxwell filter to data using multipole moments
 
     .. warning:: Automatic bad channel detection is not currently implemented.
@@ -99,6 +99,9 @@ def maxwell_filter(raw, origin='auto', int_order=8, ext_order=3,
         Basis regularization type, must be "in" or None.
         "in" is the same algorithm as the "-regularize in" option in
         MaxFilter™.
+    acquisition_system : str
+        The MEG acquisition system: either ``'elekta'`` or ``'kit'``.
+        XXX JRK: not sure what to do with CTF?.
     verbose : bool, str, int, or None
         If not None, override default verbose level (see mne.verbose)
 
@@ -267,13 +270,23 @@ def maxwell_filter(raw, origin='auto', int_order=8, ext_order=3,
     #
     # Fine calibration processing (point-like magnetometers and calib. coeffs)
     #
+    if acquisition_system == 'elekta':
+        ignore_ref = False
+        elekta_def = True
+    elif acquisition_system == 'kit':
+        ignore_ref = True
+        elekta_def = False
+    else:
+        raise NotImplementedError('Only support elekta or kit systems.')
     S_decomp = _info_sss_basis(info, None, origin, int_order, ext_order,
-                               head_frame, coil_scale)
+                               head_frame, coil_scale,
+                               elekta_def=elekta_def, ignore_ref=ignore_ref)
     if calibration is not None:
         # Compute point-like mags to incorporate gradiometer imbalance
         grad_info = pick_info(info, grad_picks)
         S_fine = _sss_basis_point(origin, grad_info, int_order, ext_order,
-                                  grad_imbalances, head_frame=head_frame)
+                                  grad_imbalances, head_frame=head_frame,
+                                  elekta_def=elekta_def, ignore_ref=ignore_ref)
         # Add point like magnetometer data to bases.
         S_decomp[grad_picks, :] += S_fine
         # Scale magnetometers by calibration coefficient
@@ -284,7 +297,8 @@ def maxwell_filter(raw, origin='auto', int_order=8, ext_order=3,
     # Translate to destination frame (always use non-fine-cal bases)
     #
     S_recon = _info_sss_basis(info, recon_trans, origin,
-                              int_order, 0, head_frame, coil_scale)
+                              int_order, 0, head_frame, coil_scale,
+                              elekta_def=elekta_def, ignore_ref=ignore_ref)
     if recon_trans is not None:
         # warn if we have translated too far
         diff = 1000 * (info['dev_head_t']['trans'][:3, 3] -
@@ -1333,7 +1347,7 @@ def _update_sensor_geometry(info, fine_cal):
 
 
 def _sss_basis_point(origin, info, int_order, ext_order, imbalances,
-                     head_frame=True):
+                     head_frame=True, elekta_def=True, ignore_ref=None):
     """Compute multipolar moments for point-like magnetometers (in fine cal)"""
 
     # Construct 'coils' with r, weights, normal vecs, # integration pts, and
@@ -1359,7 +1373,8 @@ def _sss_basis_point(origin, info, int_order, ext_order, imbalances,
             ch['coil_type'] = pt_type
         S_add = _info_sss_basis(temp_info, None, origin,
                                 int_order, ext_order, head_frame,
-                                coil_scale=this_coil_scale)
+                                coil_scale=this_coil_scale,
+                                elekta_def=elekta_def, ignore_ref=ignore_ref)
         # Scale spaces by gradiometer imbalance
         S_add *= imb[:, np.newaxis]
         S_tot += S_add
@@ -1502,14 +1517,15 @@ def _compute_sphere_activation_in(degrees):
 
 
 def _info_sss_basis(info, trans, origin, int_order, ext_order, head_frame,
-                    coil_scale=100.):
+                    coil_scale=100., elekta_def=True, ignore_ref=None):
     """SSS basis using an info structure and dev<->head trans"""
     if trans is not None:
         info = info.copy()
         info['dev_head_t'] = info['dev_head_t'].copy()
         info['dev_head_t']['trans'] = trans
-    coils = _prep_meg_channels(info, accurate=True, elekta_defs=True,
-                               head_frame=head_frame, verbose=False)[0]
+    coils = _prep_meg_channels(info, accurate=True, elekta_defs=elekta_def,
+                               head_frame=head_frame, verbose=False,
+                               ignore_ref=ignore_ref)[0]
     if not isinstance(coil_scale, np.ndarray):
         # Scale all magnetometers (with `coil_class` == 1.0) by `mag_scale`
         coil_scale = _get_coil_scale(coils, coil_scale)
