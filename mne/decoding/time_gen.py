@@ -342,6 +342,10 @@ class _GeneralizationAcrossTime(object):
         sel = np.arange(len(self.y_true_))
         if self.predict_mode == 'cross-validation':
             sel = np.unique([ii for (train, test) in self.cv_ for ii in test])
+            # XXX TODO NB This is where is gets tricky with ShuffleSplit,
+            # as the cv changes every time your run it, so you can't know
+            # in advance which sample should get a prediction and should thus
+            # be used for scoring
 
         # Preprocessing for parallelization
         n_jobs = min(len(self.y_pred_[0][0]), check_n_jobs(self.n_jobs))
