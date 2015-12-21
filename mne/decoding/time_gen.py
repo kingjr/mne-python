@@ -337,6 +337,12 @@ class _GeneralizationAcrossTime(object):
             y = np.array(y)
         self.y_true_ = y  # to be compared with y_pred for scoring
 
+        # Score only across predicted samples (NB: in non-exhaustive CV,
+        # some samples may not have any prediction)
+        sel = np.arange(len(self.y_true_))
+        if self.predict_mode == 'cross-validation':
+            sel = np.unique([ii for (train, test) in self.cv_ for ii in test])
+
         # Preprocessing for parallelization
         n_jobs = min(len(self.y_pred_[0][0]), check_n_jobs(self.n_jobs))
         parallel, p_time_gen, n_jobs = parallel_func(_score_slices, n_jobs)
@@ -347,7 +353,7 @@ class _GeneralizationAcrossTime(object):
         scores = parallel(
             p_time_gen(self.y_true_,
                        [self.y_pred_[train] for train in split],
-                       self.scorer_)
+                       self.scorer_, sel)
             for split in splits)
 
         self.scores_ = [score for chunk in scores for score in chunk]
@@ -410,7 +416,7 @@ def _predict_time_loop(X, estimators, cv, slices, predict_mode):
         X = X[all_test]  # XXX JRK: Still 12 % of cpu time.
 
         # Check that training cv and predicting cv match
-        if (len(estimators) != len(cv)) or (cv.n != len(X)):
+        if len(estimators) != len(cv):
             raise ValueError(
                 'When `predict_mode = "cross-validation"`, the training '
                 'and predicting cv schemes must be identical.')
@@ -462,7 +468,8 @@ def _predict_time_loop(X, estimators, cv, slices, predict_mode):
                     # /!\ The CV may not be exhaustive. Thus, we need to fill
                     # the prediction to an array whose length is similar to X
                     # before it was rendered contiguous.
-                    this_ypred = np.empty((n_orig_epochs,) + y_pred_.shape[1:])
+                    this_ypred = np.nan * np.ones((n_orig_epochs,) +
+                                                  y_pred_.shape[1:])
                     y_pred.append(this_ypred)
                 y_pred[-1][test, ...] = y_pred_
 
@@ -472,7 +479,7 @@ def _predict_time_loop(X, estimators, cv, slices, predict_mode):
     return y_pred
 
 
-def _score_slices(y_true, list_y_pred, scorer):
+def _score_slices(y_true, list_y_pred, scorer, sel):
     """Aux function of GeneralizationAcrossTime that loops across chunks of
     testing slices.
     """
@@ -481,7 +488,7 @@ def _score_slices(y_true, list_y_pred, scorer):
         scores = list()
         for t, this_y_pred in enumerate(y_pred):
             # Scores across trials
-            scores.append(scorer(y_true, np.array(this_y_pred)))
+            scores.append(scorer(y_true[sel], np.array(this_y_pred[sel])))
         scores_list.append(scores)
     return scores_list
 
@@ -709,7 +716,9 @@ def _predict(X, estimators, is_single_time_sample):
         # initialize predict_results array
         if fold == 0:
             predict_size = _y_pred.shape[1]
-            y_pred = np.ones((n_epochs_tmp, predict_size, n_clf))
+            # initialize array with nan in case of non-exhaustive cross-
+            # validation.
+            y_pred = np.nan * np.ones((n_epochs_tmp, predict_size, n_clf))
         y_pred[:, :, fold] = _y_pred
 
     # Collapse y_pred across folds if necessary (i.e. if independent)
