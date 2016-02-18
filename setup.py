@@ -118,3 +118,5 @@ if __name__ == "__main__":
                                 op.join('html', '*.js'),
                                 op.join('html', '*.css')]},
           scripts=['bin/mne'])
+    import mne
+    mne.datasets.sample.data_path()

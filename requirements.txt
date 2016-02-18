@@ -1,0 +1,6 @@
+setuptools
+numpy
+scipy
+matplotlib
+pysurfer
+git+https://github.com/kingjr/mne-python@ipynb
