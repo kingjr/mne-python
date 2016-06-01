@@ -694,6 +694,7 @@ def has_mne_c():
 
 def has_freesurfer():
     """Aux function"""
+    get_freesurfer_dir()
     return 'FREESURFER_HOME' in os.environ
 
 
@@ -1066,6 +1067,84 @@ class catch_logging(object):
 ###############################################################################
 # CONFIG / PREFS
 
+
+def get_freesurfer_dir(freesurfer_home=None, raise_error=False):
+    """Check and/or set FreeSurfer directory.
+
+    Parameters
+    ----------
+    freesurfer_home : str | None
+        If a value is provided, check and return freesurfer_home. Otherwise,
+        look for 'FREESURFER_HOME' in config and return the result. If not in
+        config, it will be searched via `which freesurfer`.
+    raise_error : bool
+        If True, raise a KeyError if no value for freesurfer_home can be found
+        (instead of returning None).
+
+    Returns
+    -------
+    value : str | None
+        The SUBJECTS_DIR value.
+    """
+
+    if freesurfer_home is not None and not isinstance(freesurfer_home, str):
+        raise ValueError('freesurfer_home must be None or a string.')
+
+    # If path is not in environ, we can try to detect where it is located
+    try:
+        default = subprocess.check_output(['which', 'freesurfer'])
+        # freesurfer bin is located in a subdirectory, let's get its parent
+        default = default.split(op.join('bin', 'freesurfer') + '\n')[0]
+    except subprocess.CalledProcessError:
+        default = None
+
+    # Detect freesurfer_home in os.environ
+    if freesurfer_home is None:
+        # If path is in environ, we must use this one.
+        freesurfer_home = get_config('FREESURFER_HOME', default,
+                                     raise_error=raise_error)
+
+    # Source folder if new or undetected
+    if freesurfer_home is None and raise_error:
+        raise ValueError(
+            '%s is not a correct freesurfer path.' % freesurfer_home)
+    elif freesurfer_home != default:
+        try:
+            _source_freesurfer(op.join(freesurfer_home, 'SetUpFreeSurfer.sh'))
+            # Update config
+            set_config('FREESURFER_HOME', freesurfer_home)
+        except OSError:
+            if raise_error:
+                raise ValueError(
+                    '%s is not a correct freesurfer path.' % freesurfer_home)
+
+    return freesurfer_home
+
+
+def _source_freesurfer(fs_setup_script):
+    """Shell source in virtual environment.
+
+    This prevents polluting the user environment.
+    """
+    # Try to source
+    # XXX FIXME this doesn't capture errors
+    pipe = subprocess.Popen(['bash', '-c', 'source %s' % fs_setup_script],
+                            stderr=subprocess.PIPE, shell=True)
+    output = pipe.communicate()[1]
+    if output:
+        raise OSError('%s is not a correct freesurfer path.' % fs_setup_script)
+
+    # Get subprocess environment.
+    pipe = subprocess.Popen('env -0', stdout=subprocess.PIPE, shell=True)
+    output = pipe.communicate()[0]
+
+    # Extract relevant environment variables
+    env = dict(line.split('=', 1) for line in output.split('\x00')
+               if 'freesurfer' in line)
+    # update
+    os.environ.update(env)
+
+
 def get_subjects_dir(subjects_dir=None, raise_error=False):
     """Safely use subjects_dir input to return SUBJECTS_DIR
 
@@ -1206,6 +1285,7 @@ known_config_types = (
     'MNE_STIM_CHANNEL',
     'MNE_USE_CUDA',
     'SUBJECTS_DIR',
+    'FREESURFER_HOME'
 )
 
 # These allow for partial matches, e.g. 'MNE_STIM_CHANNEL_1' is okay key
