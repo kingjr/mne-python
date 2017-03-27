@@ -6,7 +6,7 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 from nose.tools import assert_true, assert_equal, assert_raises
 from ...utils import requires_sklearn_0_15
-from ..base import _get_inverse_funcs, LinearModel, get_coef
+from ..base import _get_inverse_funcs, LinearModel, get_coef, _make_scorer
 from ..search_light import _SearchLight
 
 
@@ -127,3 +127,12 @@ def test_linearmodel():
     assert_equal(clf.filters_.shape, (3,))
     assert_equal(clf.patterns_.shape, (3,))
     assert_raises(ValueError, clf.fit, np.random.rand(20, 3, 2), y)
+
+
+@requires_sklearn_0_15
+def test_make_scorer():
+    from sklearn.metrics.scorer import _PredictScorer
+    # Sklearn <= 0.18 has a scorer error: it thinks auc needs thresholded
+    # prediction.
+    scorer = _make_scorer('roc_auc')
+    assert_equal(_PredictScorer, type(scorer))
