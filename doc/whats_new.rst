@@ -24,6 +24,8 @@ Changelog
 
     - Add .bvef extension (BrainVision Electrodes File) to :func:`mne.channels.read_montage` by `Jean-Baptiste Schiratti`_
 
+    - Add :class:`mne.decoding.SPoC` to fit and apply spatial filters based on continuous target variable, by `Jean-Remi King`_ and `Alexandre Barachant`_
+
 BUG
 ~~~
 
