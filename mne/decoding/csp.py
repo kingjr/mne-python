@@ -15,6 +15,7 @@ from scipy import linalg
 from .mixin import TransformerMixin
 from .base import BaseEstimator
 from ..cov import _regularized_covariance
+from ..utils import warn
 
 
 class CSP(TransformerMixin, BaseEstimator):
@@ -49,6 +50,8 @@ class CSP(TransformerMixin, BaseEstimator):
         If 'average_power' then self.transform will return the average power of
         each spatial filter. If 'csp_space' self.transform will return the data
         in CSP space. Defaults to 'average_power'.
+    norm_trace : bool
+        Normalize single-epoch covariance by trace. Defaults to True.
 
     Attributes
     ----------
@@ -80,7 +83,7 @@ class CSP(TransformerMixin, BaseEstimator):
     """
 
     def __init__(self, n_components=4, reg=None, log=None, cov_est="concat",
-                 transform_into='average_power'):
+                 transform_into='average_power', norm_trace=None):
         """Init of CSP."""
         # Init default CSP
         if not isinstance(n_components, int):
@@ -119,6 +122,15 @@ class CSP(TransformerMixin, BaseEstimator):
                 raise ValueError('log must be a None if transform_into == '
                                  '"csp_space".')
         self.log = log
+        if norm_trace is None:
+            norm_trace = True
+            warn("new_param defaults to True in 0.15, but will change to False"
+                 " in 0.16. Set it explicitly to avoid this warning.",
+                 DeprecationWarning)
+
+        if not isinstance(norm_trace, bool):
+            raise ValueError('norm_trace must be a bool.')
+        self.norm_trace = norm_trace
 
     def _check_Xy(self, X, y=None):
         """Aux. function to check input data."""
@@ -171,7 +183,8 @@ class CSP(TransformerMixin, BaseEstimator):
                 weight = len(class_)
 
             # normalize by trace and stack
-            covs[class_idx] = cov / np.trace(cov)
+            if self.norm_trace:
+                covs[class_idx] = cov / np.trace(cov)
             sample_weights.append(weight)
 
         if n_classes == 2:
@@ -716,9 +729,10 @@ class SPoC(CSP):
                  transform_into='average_power'):
         """Init of SPoC."""
         super(SPoC, self).__init__(n_components=n_components, reg=reg, log=log,
-                                   cov_est="epoch",
+                                   cov_est="epoch", norm_trace=False,
                                    transform_into=transform_into)
         delattr(self, 'cov_est')
+        delattr(self, 'norm_trace')
 
     def fit(self, X, y):
         """Estimate the SPoC decomposition on epochs.

@@ -33,10 +33,12 @@ BUG
 
     - Fix unit scaling when reading in EGI digitization files using :func:`mne.channels.read_dig_montage` by `Matt Boggess`_
 
+    - Fix :class:`mne.decoding.CSP` order of spatial filter in ``patterns_`` by `Alexandre Barachant`_
+
 API
 ~~~
 
-    - ...
+    - Add ``norm_trace`` parameter to control single-epoch covariance normalization in :class:mne.decoding.CSP, by `Jean-Remi King`_
 
 
 .. _changes_0_14:
